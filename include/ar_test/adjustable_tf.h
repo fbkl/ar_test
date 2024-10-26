@@ -15,11 +15,21 @@
 #include "visualization_msgs/InteractiveMarker.h"
 #include "visualization_msgs/InteractiveMarkerControl.h"
 #include "visualization_msgs/InteractiveMarkerFeedback.h"
+#include "visualization_msgs/InteractiveMarkerPose.h"
 #include "visualization_msgs/Marker.h"
 #include "ar_test/CompleteTFConfig.h"
 #include <memory>
 #include <unordered_map>
 
+void ordinary_callback(const ar_test::CompleteTFConfig& config)
+{
+	ROS_INFO("this works just fine");
+
+}
+
+void descriptionCallback(const dynamic_reconfigure::ConfigDescription& description) {
+  ROS_INFO("Received description");
+}
 
 class AdjustableTransform: geometry_msgs::TransformStamped
 {
@@ -34,61 +44,99 @@ class AdjustableTransform: geometry_msgs::TransformStamped
 			{
 				//create namespace with the child_frame_id
 				private_nh = ros::NodeHandle(nh, t.child_frame_id);
+				// we want to override the initial params that this tf may have received from the parameter server or the config defaults
+				override_params();
+				
+				//now i can create the server
+
 				s = std::make_shared<dynamic_reconfigure::Server<ar_test::CompleteTFConfig>>(private_nh);
 				//add the callback
 				dynamic_reconfigure::Server<ar_test::CompleteTFConfig>::CallbackType cb;
 				cb = boost::bind(&AdjustableTransform::reconfigure_tf_callback, this, _1,_2);
 
 				s->setCallback(cb);
-				// we want to override the initial params that this tf may have received from the parameter server or the config defaults
-				override_params();
 
 				build_6d_marker();
 				// We also want to create the marker client
 				auto clc = boost::bind(&AdjustableTransform::client_callback, this, _1);
-				cl = std::make_shared<dynamic_reconfigure::Client<ar_test::CompleteTFConfig>>(t.child_frame_id, private_nh, clc);
+		
+				std::string server_handle_string = private_nh.resolveName("/");
+				ROS_DEBUG_STREAM("server_handle_string" << server_handle_string);
+
+				auto even_more_private_nh = ros::NodeHandle(private_nh, t.child_frame_id);
+				cl = new dynamic_reconfigure::Client<ar_test::CompleteTFConfig>(server_handle_string);
+				cl->setConfigurationCallback(clc);
+				//cl->setConfigurationCallback(&ordinary_callback);
+				cl->setDescriptionCallback(&descriptionCallback);
+				ROS_DEBUG("Finished setting up AdjustableTransform");
 			}
 
-		void sendme()
+
+		void sendme(bool applyChangesNow= false)
 		{
+			ROS_DEBUG_STREAM("sendme called");
 			geometry_msgs::TransformStamped t = *this;
+			ROS_DEBUG_STREAM("sendme got transform");
 			t.header.stamp = ros::Time::now();
+			ROS_DEBUG_STREAM("sendme set header stamp");
 			//t.child_frame_id = "test2";
 			tb.sendTransform(t);
-			markerServer->applyChanges();
+			ROS_DEBUG_STREAM("sendme sent transform");
+			if (applyChangesNow)
+				markerServer->applyChanges();
+			ROS_DEBUG_STREAM("sendme finished");
+		}
+		void update_marker()
+		{
+			ROS_WARN("update markr is a stub!!");
+			visualization_msgs::InteractiveMarkerPose pose;
+			pose.pose.position.x = transform.translation.x;
+			pose.pose.position.y = transform.translation.y;
+			pose.pose.position.z = transform.translation.z;
+			if (do_update_marker)
+				markerServer->applyChanges();
+			do_update_marker = true;
 		}
 
+
 	private:
+		bool do_update_marker{true};
 		ros::NodeHandle private_nh;
 		tf2_ros::StaticTransformBroadcaster& tb;
 		std::shared_ptr<dynamic_reconfigure::Server<ar_test::CompleteTFConfig>> s;
 		std::shared_ptr<interactive_markers::InteractiveMarkerServer> markerServer;
-		std::shared_ptr<dynamic_reconfigure::Client<ar_test::CompleteTFConfig>> cl;
+		//std::shared_ptr<dynamic_reconfigure::Client<ar_test::CompleteTFConfig>> cl;
+		dynamic_reconfigure::Client<ar_test::CompleteTFConfig>* cl;
 		visualization_msgs::InteractiveMarker int_marker;
 
 		void client_callback(const ar_test::CompleteTFConfig& config)
 		{
-			reconfigure_tf_callback(config,1);
+			ROS_DEBUG("Called client_callback");
+			reconfigure_tf(config);
+			do_update_marker = false;
+			sendme();
 		}
 		void override_params()
 		{
-			private_nh.setParam("double_paramqw",this->transform.rotation.w);
-			private_nh.setParam("double_paramqx",this->transform.rotation.x);
-			private_nh.setParam("double_paramqy",this->transform.rotation.y);
-			private_nh.setParam("double_paramqz",this->transform.rotation.z);
-			private_nh.setParam("x",this->transform.translation.x);
-			private_nh.setParam("y",this->transform.translation.y);
-			private_nh.setParam("z",this->transform.translation.z);
-			private_nh.setParam("parent_frame_id",this->header.frame_id);
-			private_nh.setParam("child_frame_id",this->child_frame_id);
+			ROS_DEBUG("Overriding params");
+			private_nh.setParam("double_paramqw", transform.rotation.w);
+			private_nh.setParam("double_paramqx", transform.rotation.x);
+			private_nh.setParam("double_paramqy", transform.rotation.y);
+			private_nh.setParam("double_paramqz", transform.rotation.z);
+			private_nh.setParam("x",	      transform.translation.x);
+			private_nh.setParam("y",	      transform.translation.y);
+			private_nh.setParam("z",	      transform.translation.z);
+			private_nh.setParam("parent_frame_id",header.frame_id);
+			private_nh.setParam("child_frame_id", child_frame_id);
 
 		}
 		void build_6d_marker()
 		{
-			int_marker.header.frame_id = this->header.frame_id;
-			int_marker.pose.position.x = this->transform.translation.x;
-			int_marker.pose.position.y = this->transform.translation.y;
-			int_marker.pose.position.z = this->transform.translation.z;
+			ROS_DEBUG("build_6d_marker");
+			int_marker.header.frame_id = header.frame_id;
+			int_marker.pose.position.x = transform.translation.x;
+			int_marker.pose.position.y = transform.translation.y;
+			int_marker.pose.position.z = transform.translation.z;
 			int_marker.scale = 0.3;
 			int_marker.name = "simple_6dof";
 			int_marker.description = "Simple 6-DOF Control";
@@ -160,6 +208,7 @@ class AdjustableTransform: geometry_msgs::TransformStamped
 		void processFeedback(const visualization_msgs::InteractiveMarkerFeedbackConstPtr& feedback)
 
 		{
+			ROS_DEBUG("called processFeedback");
 			//to standardize here, we created a client that connects to the server, so here we should create a dynamic reconfigure call....
 			ar_test::CompleteTFConfig config;
 
@@ -172,13 +221,19 @@ class AdjustableTransform: geometry_msgs::TransformStamped
 			config.y = feedback->pose.position.y;
 			config.z = feedback->pose.position.z;
 
+			config.child_frame_id = child_frame_id;
+			config.parent_frame_id = header.frame_id;
+
+			//ROS_DEBUG("Calling client setConfiguration");
 			cl->setConfiguration(config);
-			markerServer->applyChanges();
+			//ROS_DEBUG("Trying to applyChanges in markerServer");
+			//markerServer->applyChanges();
+			ROS_DEBUG("exited processFeedback");
 		}
 
 		void reconfigure_tf_callback(const ar_test::CompleteTFConfig &config, uint32_t level)
 		{
-			ROS_INFO("Reconfigure request:\nparent_frame_id:%s,\nchild_frame_id:%s\nrpy %f,%f,%f\n q x:%f,y:%f,z:%f,w:%f\nx:%f,y:%f,z:%f"
+			ROS_DEBUG("Reconfigure request:\nparent_frame_id:%s,\nchild_frame_id:%s\nrpy %f,%f,%f\n q x:%f,y:%f,z:%f,w:%f\nx:%f,y:%f,z:%f"
 					,config.parent_frame_id.c_str()
 					,config.child_frame_id.c_str()
 					,config.double_paramr
@@ -192,19 +247,26 @@ class AdjustableTransform: geometry_msgs::TransformStamped
 					,config.y
 					,config.z
 				);
-
-			this->transform.translation.x = config.x;
-			this->transform.translation.y = config.y;
-			this->transform.translation.z = config.z;
-			this->transform.rotation.w = config.double_paramqw;
-			this->transform.rotation.x = config.double_paramqx;
-			this->transform.rotation.y = config.double_paramqy;
-			this->transform.rotation.z = config.double_paramqz;
-			this->header.frame_id = config.parent_frame_id;
-			this->child_frame_id = config.child_frame_id;
+			
+			reconfigure_tf(config);
 			sendme();
-			// we also want to update the marker position
+			update_marker();
+			ROS_DEBUG("finished reconfigure request");
 
+		}
+		void reconfigure_tf(const ar_test::CompleteTFConfig &config)
+		{
+			ROS_DEBUG("started reconfigure_tf");
+			transform.translation.x = config.x;
+			transform.translation.y = config.y;
+			transform.translation.z = config.z;
+			transform.rotation.w = config.double_paramqw;
+			transform.rotation.x = config.double_paramqx;
+			transform.rotation.y = config.double_paramqy;
+			transform.rotation.z = config.double_paramqz;
+			header.frame_id = config.parent_frame_id;
+			child_frame_id = config.child_frame_id;
+			ROS_DEBUG("finished reconfigure_tf");
 
 		}
 		visualization_msgs::Marker makeBox(const visualization_msgs::InteractiveMarker& msg)
@@ -240,6 +302,7 @@ class AdjustableTransformBroadcaster
 			//add to my map
 			my_atf_list[t.child_frame_id] = at;
 			at->sendme();
+			at->update_marker();
 		}
 		ros::NodeHandle nh;
 	private:
