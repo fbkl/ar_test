@@ -155,6 +155,9 @@ feedback.pose.orientation.z, ])
             int_marker.description += " + 6-DOF controls"
             int_marker.description += "\n" + control_modes_dict[interaction_mode]
         
+
+        int_marker.description = rospy.get_param("~marker_description", int_marker.description)
+
         control = InteractiveMarkerControl()
         control.orientation.w = 1
         control.orientation.x = 1
@@ -343,6 +346,18 @@ if __name__ == '__main__':
 
         my_args = strip_argv(sys.argv)
 
+        rospy.logwarn("This node can substitute either a tf or a tf2_ros static publisher, but they differ in the number of arguments. Please make sure which one you are using!")
+        has_rate = False
+        if rospy.get_param("has_rate", default=False) or type(my_args[-1]) == type(""):
+            rpy_len = 9
+            q_len = 10
+        else:
+            has_rate = True
+            rpy_len = 10
+            q_len = 11
+
+
+
         if len(my_args) <= 1:
             print("No arguments were given")
         else:
@@ -351,17 +366,18 @@ if __name__ == '__main__':
             rospy.set_param("~x", float(my_args[1]))
             rospy.set_param("~y", float(my_args[2]))
             rospy.set_param("~z", float(my_args[3]))
-            if len(my_args) == 10: ## rpy angles
+            if len(my_args) == rpy_len: ## rpy angles
                 rospy.logwarn("the order of the angles is inverted in this guy because it is also inverted in tf static_transform_publisher")
                 rospy.set_param("~double_paramy", float(my_args[4]))
                 rospy.set_param("~double_paramp", float(my_args[5]))
                 rospy.set_param("~double_paramr", float(my_args[6]))
                 rospy.set_param("~parent_frame_id", my_args[7])
                 rospy.set_param("~child_frame_id", my_args[8])
-                rospy.set_param("~rate", float(my_args[9]))
+                if has_rate:
+                    rospy.set_param("~rate", float(my_args[9]))
                 rospy.set_param("~use_q", False)
 
-            if len(my_args) == 11: ## quaternions
+            if len(my_args) == q_len: ## quaternions
                 rospy.logerr("ATTENTION, I HAVEN'T CHECKED THIS, IDK IF IT IS CORRECT!")
                 rospy.set_param("~double_paramqx", float(my_args[4]))
                 rospy.set_param("~double_paramqy", float(my_args[5]))
@@ -369,7 +385,8 @@ if __name__ == '__main__':
                 rospy.set_param("~double_paramqw", float(my_args[7]))
                 rospy.set_param("~parent_frame_id", my_args[8])
                 rospy.set_param("~child_frame_id", my_args[9])
-                rospy.set_param("~rate", float(my_args[10]))
+                if has_rate:    
+                    rospy.set_param("~rate", float(my_args[10]))
                 rospy.set_param("~use_q", True)
 
         a.publisher()
