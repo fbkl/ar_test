@@ -226,6 +226,7 @@ class AdjustableTransform: geometry_msgs::TransformStamped
 
 			//ROS_DEBUG("Calling client setConfiguration");
 			cl->setConfiguration(config);
+			update_marker();
 			//ROS_DEBUG("Trying to applyChanges in markerServer");
 			//markerServer->applyChanges();
 			ROS_DEBUG("exited processFeedback");
@@ -250,7 +251,7 @@ class AdjustableTransform: geometry_msgs::TransformStamped
 			
 			reconfigure_tf(config);
 			sendme();
-			update_marker();
+			//update_marker();
 			ROS_DEBUG("finished reconfigure request");
 
 		}
@@ -276,7 +277,10 @@ class AdjustableTransform: geometry_msgs::TransformStamped
 			marker.scale.x = msg.scale * 0.45;
 			marker.scale.y = msg.scale * 0.45;
 			marker.scale.z = msg.scale * 0.45;
-			marker.color.a = 1.0;
+			marker.color.r = 1.0;
+			marker.color.g = 1.0;
+			marker.color.b = 1.0;
+			marker.color.a = 0.1;
 			return marker;
 		}
 		visualization_msgs::InteractiveMarkerControl makeBoxControl(visualization_msgs::InteractiveMarker& msg)
@@ -295,6 +299,11 @@ class AdjustableTransformBroadcaster
 		{
 			nh = ros::NodeHandle(my_namespace);
 			ms = std::make_shared<interactive_markers::InteractiveMarkerServer>(my_namespace);
+		}
+		AdjustableTransformBroadcaster(std::string ns)
+		{
+			nh = ros::NodeHandle(ns);
+			ms = std::make_shared<interactive_markers::InteractiveMarkerServer>(ns);
 		}
 		void sendTf(geometry_msgs::TransformStamped t)
 		{

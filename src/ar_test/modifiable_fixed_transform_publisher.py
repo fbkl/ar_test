@@ -43,7 +43,7 @@ def makeBox( msg ):
     marker.color.r = random()
     marker.color.g = random()
     marker.color.b = random()
-    marker.color.a = 1.0
+    marker.color.a = 0.1
 
     return marker
 
