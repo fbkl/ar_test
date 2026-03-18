@@ -1,4 +1,5 @@
 #include "ar_test/adjustable_tf.h"
+#include "ar_test/adjustable_tfb.h"
 #include "geometry_msgs/TransformStamped.h"
 #include "ros/spinner.h"
 #include "ros/time.h"
@@ -15,6 +16,7 @@ int main(int argc, char** argv) {
 		if( ros::console::set_logger_level(ROSCONSOLE_DEFAULT_NAME, ros::console::levels::Debug) ) {
 			ros::console::notifyLoggerLevelsChanged();
 		}
+		ROS_WARN_STREAM("started the mofo!" << argc);
 		ROS_WARN_STREAM("started the mofo!" << argc);
 
 		AdjustableTransformBroadcaster atb(ros::this_node::getName());

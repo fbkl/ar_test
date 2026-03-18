@@ -8,6 +8,8 @@ import tf
 import std_msgs.msg
 #import tf_transformations
 import sys
+from std_srvs.srv import Empty, EmptyResponse
+from diagnostic_msgs.msg import DiagnosticStatus, DiagnosticArray, KeyValue
 
 from dynamic_reconfigure.client import Client
 from dynamic_reconfigure.server import Server
@@ -96,6 +98,13 @@ class ModifiableFixedTransformPublisher:
         sub_menu_handle = self.menu_handler.insert( "Submenu" )
         self.menu_handler.insert( "First Entry", parent=sub_menu_handle, callback=self.processFeedback )
         self.menu_handler.insert( "Second Entry", parent=sub_menu_handle, callback=self.processFeedback )
+        self.s = rospy.Service('~start_now', Empty, self.startaroni)
+        self.diagspub = rospy.Publisher('/diagnostics', DiagnosticArray, queue_size=10)
+
+    def startaroni(self, req):
+        rospy.logwarn("Got a startnow request. I already started, so doing nothing")
+        return EmptyResponse()
+
 
     def processFeedback(self, feedback ):
         rospy.logdebug("processFeedback:" +self.child_frame_id)
@@ -326,6 +335,17 @@ feedback.pose.orientation.z, ])
 
             #rospy.logwarn("running")
             self.server.applyChanges()
+            ##sort of convoluted ay?
+            diag_msg_array = DiagnosticArray()
+            diag_msg_array.header.stamp = rospy.Time.now()
+            diags = DiagnosticStatus()
+            diags.name = rospy.get_name() 
+            nope_value = KeyValue()
+            nope_value.key = "No status needed"
+            diags.values.append(nope_value)
+            diag_msg_array.status.append(diags)
+
+            self.diagspub.publish(diag_msg_array)
     
             rate.sleep()
 
@@ -340,11 +360,13 @@ def strip_argv(argv):
     return stripped
 if __name__ == '__main__':
     #   try:
+
+        #rospy.init_node('new_coordinate_frame_publisher', anonymous=True)
+        my_args = strip_argv(sys.argv)
+        nice_node_name = my_args[9].split("/")[-1] ## i need the num_params, but the order varies if i have the rate
+        rospy.init_node(nice_node_name)
         a = ModifiableFixedTransformPublisher()
 
-        rospy.init_node('new_coordinate_frame_publisher', anonymous=True)
-
-        my_args = strip_argv(sys.argv)
 
         rospy.logwarn("This node can substitute either a tf or a tf2_ros static publisher, but they differ in the number of arguments. Please make sure which one you are using!")
         has_rate = False

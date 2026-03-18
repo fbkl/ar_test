@@ -108,7 +108,7 @@ find_package(catkin REQUIRED COMPONENTS
 ## DEPENDS: system dependencies of this project that dependent projects also need
 catkin_package(
   INCLUDE_DIRS include
-#  LIBRARIES ar_test
+  LIBRARIES ar_test
 #  CATKIN_DEPENDS other_catkin_pkg
 #  DEPENDS system_lib
 )
@@ -122,22 +122,31 @@ catkin_package(
 include_directories(
  include
  ${catkin_INCLUDE_DIRS}
+  ${dynamic_reconfigure_INCLUDE_DIRS}
 )
 
 ## Declare a C++ library
-# add_library(${PROJECT_NAME}
-#   src/${PROJECT_NAME}/ar_test.cpp
-# )
+add_library(${PROJECT_NAME}
+   src/${PROJECT_NAME}/ar_test.cpp
+   src/${PROJECT_NAME}/ar_tfb.cpp
+)
 
 ## Add cmake target dependencies of the library
 ## as an example, code may need to be generated before libraries
 ## either from message generation or dynamic reconfigure
-# add_dependencies(${PROJECT_NAME} ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
+ add_dependencies(${PROJECT_NAME} ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS} ${PROJECT_NAME}_gencfg)
+
+ target_link_libraries(${PROJECT_NAME}
+   pthread 
+   ${catkin_LIBRARIES}
+   ${dynamic_reconfigure_LIBRARIES}
+ )
+
 
 ## Declare a C++ executable
 ## With catkin_make all packages are built within a single CMake context
 ## The recommended prefix ensures that target names across packages don't collide
-add_executable(adjustable_node src/ar_test/adjustable_node.cpp)
+add_executable(adjustable_node src/ar_test/adjustable_node.cpp src/ar_test/ar_test.cpp src/ar_test/ar_tfb.cpp)
 
 ## Rename C++ executable without prefix
 ## The above recommended prefix causes long target names, the following renames the
