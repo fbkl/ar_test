@@ -8,6 +8,8 @@ import std_msgs.msg
 import sys
 from std_srvs.srv import Empty, EmptyResponse
 
+import tf.transformations as tft
+
 if __name__ == '__main__':
 
         rospy.init_node('calibration_frame_publisher', anonymous=True)
@@ -46,9 +48,12 @@ if __name__ == '__main__':
 
 
         camera = "radius" ##TODO: PARAM!
-        parent_frame_id = f"{camera}_parent"
+        #parent_frame_id = f"{camera}_parent"
+        parent_frame_id = f"{camera}_localmap"
+        #parent_frame_id = f"{camera}_infra1_optical_frame"
         #child_frame_id = "fixed_room_marker"
-        child_frame_id = "radius_localmap"
+        #child_frame_id = "radius_localmap"
+        child_frame_id = "room"
 
         rospy.logwarn(buffer.all_frames_as_string())
 
@@ -57,16 +62,43 @@ if __name__ == '__main__':
         trans = buffer.lookup_transform(child_frame_id, parent_frame_id, rospy.Time(0),rospy.Duration(5))
         #(origin_translation,orientation) = listener.lookupTransform(parent_frame_id, child_frame_id, rospy.Time(0))
         
+        inverted= False
         origin_translation = trans.transform.translation
         orientation = trans.transform.rotation
+        
+        if inverted:
+            origin_translation.x *=-1
+            origin_translation.y *=-1
+            origin_translation.z *=-1
+       
+        rev_ori=True
+        if rev_ori:
+            q = [orientation.x, orientation.y, orientation.z, orientation.w]
+            roll, pitch, yaw = tft.euler_from_quaternion(q)
 
+            # rebuild quaternion with yaw only
+            #q_yaw_only = tft.quaternion_from_euler(0, 0, -yaw)
+            #q_yaw_only = tft.quaternion_from_euler(0, 0, -2*yaw)
+            #q_yaw_only = tft.quaternion_from_euler(0, 0, 2*yaw)
+            q_yaw_only = tft.quaternion_from_euler(0, 0, yaw)
+            orientation.x = q_yaw_only[0]
+            orientation.y = q_yaw_only[1]
+            orientation.z = q_yaw_only[2]
+            orientation.w = q_yaw_only[3]
+        
         calibrated_transform = tf2_ros.TransformStamped()
         calibrated_transform.child_frame_id = f"{camera}_localmap"
         calibrated_transform.header.stamp = rospy.Time.now()
         calibrated_transform.header.frame_id = "map"
         
         calibrated_transform.transform.translation = origin_translation
-        calibrated_transform.transform.rotation = orientation
+        
+        no_orientation=False
+        if no_orientation:
+            calibrated_transform.transform.rotation.w = 1
+        else:
+            calibrated_transform.transform.rotation = orientation
+        
         
         br.sendTransform(calibrated_transform) ## or the other way around
         
