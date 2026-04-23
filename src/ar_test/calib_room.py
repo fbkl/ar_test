@@ -47,7 +47,7 @@ if __name__ == '__main__':
         rospy.sleep(1.0)
 
 
-        camera = "radius" ##TODO: PARAM!
+        camera = rospy.get_param('~camera', "camera") 
         #parent_frame_id = f"{camera}_parent"
         parent_frame_id = f"{camera}_localmap"
         #parent_frame_id = f"{camera}_infra1_optical_frame"
