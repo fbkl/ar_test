@@ -10,6 +10,8 @@
 	<!-- node pkg="tf" type="static_transform_publisher" name="camera_link_broadcaster" args="0 0 1 0 0 1.570796325 map usb_cam 100" / -->
 	<!-- node pkg="tf" type="static_transform_publisher" name="camera_link_broadcaster" args="0 0 1 3.14159265 3.14159265 1.570796325 map usb_cam_acer 100" / -->
 	<arg name="camera_name" default="radius" />
+	<arg name="machine" />
+	<include file="$(find vio_launch)/launch/includes/machines.xml"/>
 	<group ns="$(arg camera_name)">
 		<!-- node pkg="tf" type="static_transform_publisher" name="camera_link_broadcaster" args="0 0 1 3.14159265 0 -1.570796325 map usb_cam_acer 100" / -->
 		<!-- node pkg="tf" type="static_transform_publisher" name="tripod_link_broadcaster" args="1 0 0.9015 0 0 0 map room 100" / -->
@@ -25,7 +27,7 @@
 		<arg name="bundle_files" default="$(find ar_test)/bundles/room.xml " />
 
 		<arg name="marker_size" default="13.0" />
-		<node name="ar_track_alvar" pkg="ar_track_alvar" type="findMarkerBundlesNoKinect" respawn="false" output="screen" >
+		<node name="ar_track_alvar" pkg="ar_track_alvar" type="findMarkerBundlesNoKinect" respawn="false" output="screen" machine="$(arg machine)">
 			<rosparam param="proper_names" >['room','hey']</rosparam>
 			<param name="marker_size" value="$(arg marker_size)"/>
 			<param name="max_new_marker_error" value="$(arg max_new_marker_error)"/>
