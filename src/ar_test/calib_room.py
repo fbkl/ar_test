@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import numpy as np
 import rospy
 import tf2_ros
 import tf
@@ -10,61 +11,80 @@ from std_srvs.srv import Empty, EmptyResponse
 
 import tf.transformations as tft
 
-if __name__ == '__main__':
 
-        rospy.init_node('calibration_frame_publisher', anonymous=True)
+rospy.init_node('calibration_frame_publisher', anonymous=True)
 
-        """
-        map -> fixed_room_marker : there is a fixed transform
+"""
+map -> fixed_room_marker : there is a fixed transform
+then each camera will have their "map" defined as a {camera_name}_localmap 
+the tf from the camera to this localmap
+ar_track alvar with publish the tf from the camera frame to the fixed_room_marker
+i need to calculate then the tf from camera to map
+then publish the inverse transform from map to {camera_name}_localmap
+and the set the ar_track_alvar node to sleep until another calibration is required
+easy peasy :(
+"""
 
-        then each camera will have their "map" defined as a {camera_name}_localmap 
-
-        the tf from the camera to this localmap
-
-        
-        
-
-
-        ar_track alvar with publish the tf from the camera frame to the fixed_room_marker
-
-
-        i need to calculate then the tf from camera to map
-
-        then publish the inverse transform from map to {camera_name}_localmap
-
-        and the set the ar_track_alvar node to sleep until another calibration is required
-
-
-        easy peasy :(
-
-        """
-
-
-        br = tf2_ros.StaticTransformBroadcaster()
-        buffer = tf2_ros.Buffer()
-        listener = tf2_ros.TransformListener(buffer)
-        #listener = tf.TransformListener()
-        rospy.sleep(1.0)
-
-
-        camera = rospy.get_param('~camera', "camera") 
+br = tf2_ros.StaticTransformBroadcaster()
+buffer = tf2_ros.Buffer()
+listener = tf2_ros.TransformListener(buffer)
+#listener = tf.TransformListener()
+camera = rospy.get_param('~camera', "camera") 
         #parent_frame_id = f"{camera}_parent"
-        parent_frame_id = f"{camera}_localmap"
+parent_frame_id = f"{camera}_localmap"
         #parent_frame_id = f"{camera}_infra1_optical_frame"
         #child_frame_id = "fixed_room_marker"
         #child_frame_id = "radius_localmap"
-        child_frame_id = "room"
+child_frame_id = f"{camera}_room" ## maybe this is map and i need to publish the tf from map to room
+
+#child_frame_id = "map" # this does not work. the solution will be more complicated
+
+rospy.sleep(1.0)
+
+def calib_callback(req):
 
         rospy.logwarn(buffer.all_frames_as_string())
 
-        ## this transform will be available via alvar
-        #trans = buffer.lookup_transform(parent_frame_id, child_frame_id, rospy.Time(0),rospy.Duration(5))
-        trans = buffer.lookup_transform(child_frame_id, parent_frame_id, rospy.Time(0),rospy.Duration(5))
-        #(origin_translation,orientation) = listener.lookupTransform(parent_frame_id, child_frame_id, rospy.Time(0))
+        quats = []
+        vecs = []
+
+        for i in range(10):
+            ## this transform will be available via alvar
+            #trans = buffer.lookup_transform(parent_frame_id, child_frame_id, rospy.Time(0),rospy.Duration(5))
+            trans = buffer.lookup_transform(child_frame_id, parent_frame_id, rospy.Time(0),rospy.Duration(5))
+            #(origin_translation,orientation) = listener.lookupTransform(parent_frame_id, child_frame_id, rospy.Time(0))
+            origin_translation = trans.transform.translation
+            orientation = trans.transform.rotation
         
+            q = [orientation.x, orientation.y, orientation.z, orientation.w]
+            quats.append(q)
+
+            v = [origin_translation.x, origin_translation.y, origin_translation.z ]
+            vecs.append(v)
+
+        ## averaging quaternions using the eigenvalue method
+        Q = np.array(quats)
+        M = Q.T @ Q
+        eigvals, eigvecs = np.linalg.eigh(M)
+
+        best_q = eigvecs[:, -1] ## the largest is the last one?
+        orientation.x = best_q[0]
+        orientation.y = best_q[1]
+        orientation.z = best_q[2]
+        orientation.w = best_q[3]
+        #orientation = trans.transform.rotation
+
+        ## now averaging the vecs
+
+        V = np.array(vecs)
+        best_v = V.mean(axis=0)
+        assert(len(best_v) == 3) 
+        origin_translation.x = best_v[0]
+        origin_translation.y = best_v[1]
+        origin_translation.z = best_v[2]
+        #origin_translation = trans.transform.translation
+
         inverted= False
-        origin_translation = trans.transform.translation
-        orientation = trans.transform.rotation
         
         if inverted:
             origin_translation.x *=-1
@@ -89,7 +109,7 @@ if __name__ == '__main__':
         calibrated_transform = tf2_ros.TransformStamped()
         calibrated_transform.child_frame_id = f"{camera}_localmap"
         calibrated_transform.header.stamp = rospy.Time.now()
-        calibrated_transform.header.frame_id = "map"
+        calibrated_transform.header.frame_id = "room"
         
         calibrated_transform.transform.translation = origin_translation
         
@@ -102,3 +122,9 @@ if __name__ == '__main__':
         
         br.sendTransform(calibrated_transform) ## or the other way around
         
+        return EmptyResponse()
+
+
+if __name__ == '__main__':
+    s = rospy.Service('calib',Empty, calib_callback)
+    rospy.spin()
