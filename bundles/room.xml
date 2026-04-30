@@ -6,13 +6,13 @@
         <corner x="-6.5"  y="6.5" z="0" />
         <corner x="-6.5"  y="-6.5" z="0" />
     </marker>
-    <marker index="11" status="0">
+    <marker index="11" status="1">
         <corner x="6.5"  y="-105.5" z="52.55" />
         <corner x="-6.5" y="-105.5" z="52.55" />
         <corner x="-6.5" y="-105.5" z="65.45" />
         <corner x="6.5"  y="-105.5" z="65.45" />
     </marker>
-    <marker index="12" status="0">
+    <marker index="12" status="1">
         <corner x="-59" y="-4" z="51" />
         <corner x="-59" y="9"  z="51" />
         <corner x="-59" y="9"  z="64"  />
