@@ -41,7 +41,11 @@
 			<param name="output_frame" value="$(arg output_frame)"/>
 			<remap from="camera_image" to="$(arg cam_image_topic)"/>
 			<remap from="camera_info" to="$(arg cam_info_topic)"/>
-		</node> 
+		</node>
+		<!-- says out loud when this camera CANNOT be calibrated (marker clipped / alvar down / clock skew). shows under 'AR Markers' -->
+		<node name="ar_visibility" pkg="diagnostics_schema" type="ar_visibility.py" respawn="true" output="log">
+			<param name="camera" value="$(arg camera_name)"/>
+		</node>
 		<node name="calib_node" pkg="ar_test" type="calib_room.py" respawn="false" output="screen" if="false">
 			<param name="camera" value="$(arg camera_name)"/>
 		</node>
