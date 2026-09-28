@@ -39,19 +39,57 @@ child_frame_id = f"{camera}_room" ## maybe this is map and i need to publish the
 
 #child_frame_id = "map" # this does not work. the solution will be more complicated
 
+## Time(0) means "the LATEST transform you have, however old". If the room marker was
+## seen a minute ago and is clipped now, the old code averaged that same stale transform
+## 10 times and "succeeded" silently. So: only calibrate on a marker seen just now, judged
+## by LOCAL arrival of alvar's ar_pose_marker (never by stamps -- those come from the
+## camera machine's clock), and take 10 DISTINCT detections, not 10 copies of one.
+## diagnostics_schema/ar_visibility.py shows the same thing live under 'AR Markers'.
+from ar_track_alvar_msgs.msg import AlvarMarkers
+SEEN_TIMEOUT = 1.0     # s, local clock
+SAMPLING_TIMEOUT = 5.0 # s, to collect all 10 distinct detections
+last_seen_arrival = None
+
+def ar_callback(msg):
+    global last_seen_arrival
+    if msg.markers:
+        last_seen_arrival = rospy.get_time()
+
+rospy.Subscriber("ar_pose_marker", AlvarMarkers, ar_callback, queue_size=1)
+
 rospy.sleep(1.0)
+
+def fail(why):
+    rospy.logerr(f"[{camera}] calibration REFUSED: {why}")
+    raise rospy.ServiceException(f"[{camera}] calibration refused: {why}")
 
 def calib_callback(req):
 
         rospy.logwarn(buffer.all_frames_as_string())
 
+        if last_seen_arrival is None:
+            fail("room marker never detected by ar_track_alvar (clipped? out of view?)")
+        if rospy.get_time() - last_seen_arrival > SEEN_TIMEOUT:
+            fail(f"room marker not detected for {rospy.get_time() - last_seen_arrival:.1f} s (clipped? blurred? too far?)")
+
         quats = []
         vecs = []
+        last_stamp = None
+        deadline = rospy.get_time() + SAMPLING_TIMEOUT
 
-        for i in range(10):
+        while len(quats) < 10:
+            if rospy.get_time() > deadline:
+                fail(f"only {len(quats)}/10 fresh detections in {SAMPLING_TIMEOUT} s -- marker flickering in and out of view")
             ## this transform will be available via alvar
             #trans = buffer.lookup_transform(parent_frame_id, child_frame_id, rospy.Time(0),rospy.Duration(5))
-            trans = buffer.lookup_transform(child_frame_id, parent_frame_id, rospy.Time(0),rospy.Duration(5))
+            try:
+                trans = buffer.lookup_transform(child_frame_id, parent_frame_id, rospy.Time(0),rospy.Duration(1))
+            except (tf2_ros.LookupException, tf2_ros.ConnectivityException, tf2_ros.ExtrapolationException) as e:
+                fail(f"no transform {child_frame_id} <- {parent_frame_id}: {e}")
+            if trans.header.stamp == last_stamp or rospy.get_time() - last_seen_arrival > SEEN_TIMEOUT:
+                rospy.sleep(0.02) ## same detection as last time, or the marker just dropped out: wait for a new one
+                continue
+            last_stamp = trans.header.stamp
             #(origin_translation,orientation) = listener.lookupTransform(parent_frame_id, child_frame_id, rospy.Time(0))
             origin_translation = trans.transform.translation
             orientation = trans.transform.rotation
