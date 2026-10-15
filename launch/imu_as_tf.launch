@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<launch>
+<node name="cb" pkg="cometa_bridge" type="node" respawn="false" output="screen">
+    <param name="num_imus" value="3"/>
+  </node>
+
+<group ns="imu0">
+	<remap from="imu" to="/imu0"/>
+  <node pkg="imu_complementary_filter" type="complementary_filter_node"
+      name="complementary_filter_gain_node" output="screen">
+    <param name="do_bias_estimation" value="false"/>
+    <param name="do_adaptive_gain" value="false"/>
+    <param name="use_mag" value="false"/>
+    <param name="gain_acc" value="0.0"/>
+    <param name="gain_mag" value="0.01"/>
+  </node>
+
+  <node name="tf_from_imu" pkg="ar_test" type="tf_from_imu.py" respawn="false" output="screen" >
+	  <rosparam param="origin"> [0, 0.2, 0.3] </rosparam>
+    <param name="tf_name" value="torax" />
+  </node>
+</group>
+
+<group ns="imu1">
+	<remap from="imu" to="/imu1"/>
+  <node pkg="imu_complementary_filter" type="complementary_filter_node"
+      name="complementary_filter_gain_node" output="screen">
+    <param name="do_bias_estimation" value="false"/>
+    <param name="do_adaptive_gain" value="false"/>
+    <param name="use_mag" value="false"/>
+    <param name="gain_acc" value="0.0"/>
+    <param name="gain_mag" value="0.01"/>
+  </node>
+
+  <node name="tf_from_imu" pkg="ar_test" type="tf_from_imu.py" respawn="false" output="screen" >
+	  <rosparam param="origin"> [0.3, 0.2, 0.3] </rosparam>
+    <param name="tf_name" value="brachius" />
+  </node>
+</group>
+
+<group ns="imu2">
+	<remap from="imu" to="/imu2"/>
+  <node pkg="imu_complementary_filter" type="complementary_filter_node"
+      name="complementary_filter_gain_node" output="screen">
+    <param name="do_bias_estimation" value="false"/>
+    <param name="do_adaptive_gain" value="false"/>
+    <param name="use_mag" value="false"/>
+    <param name="gain_acc" value="0.0"/>
+    <param name="gain_mag" value="0.01"/>
+  </node>
+
+  <node name="tf_from_imu" pkg="ar_test" type="tf_from_imu.py" respawn="false" output="screen" >
+	  <rosparam param="origin"> [0.6, 0.2, 0.3] </rosparam>
+    <param name="tf_name" value="radius" />
+  </node>
+</group>
+
+
+</launch>
+

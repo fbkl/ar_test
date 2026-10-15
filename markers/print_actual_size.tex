@@ -1,0 +1,125 @@
+%
+% @author      : frekle (frekle@bml01.mech.kth.se)
+% @created     : 17/05/2023
+% @filename    : print_actual_size.tex
+%
+
+\documentclass{article}
+
+\usepackage[utf8]{inputenc}
+\usepackage[a4paper, top=10mm, bottom=10mm, left=15mm, right=15mm]{geometry}
+\usepackage[all]{background}
+\usepackage{datetime}
+%\usepackage{url}
+\usepackage{hyperref}
+
+\SetBgContents{
+    \begin{tabular}{c c}
+        AR fiducial markers with actual size.\\
+
+    \end{tabular}
+
+%\url{http://tex.stackexchange.com/}
+}% Set contents
+\backgroundsetup{color=black}
+
+\SetBgPosition{current page.west}% Select location
+\SetBgVshift{-1.0cm}% Add vertical shift (results in a shift in x direction due to rotation)
+\SetBgOpacity{1.0}% Select opacity
+\SetBgAngle{90.0}% Select rotation of logo
+\SetBgScale{1.0}% Select scale factor of logo
+
+\newcommand{\bb}[1]{\textbf{\displaydate{#1}}}
+
+\renewcommand{\baselinestretch}{1.2}
+\makeatletter         
+\renewcommand\maketitle{
+{\raggedright % Note the extra {
+\begin{center}
+{\LARGE
+%\bfseries 
+\sffamily 
+\@title }\\[2ex] 
+{
+%\Large
+\@author}\\[2ex] 
+%\@prof \\
+\@date\\[6ex]
+\end{center}
+}}
+\makeatother
+
+\usepackage[
+backend=biber,
+style=alphabetic,
+sorting=ynt
+]{biblatex}
+\addbibresource{bib.bib}
+
+\fboxsep=20mm%padding thickness
+\fboxrule=1pt%border thickness
+
+
+\title{\textbf{Upperbody single arm AR markers example }
+}
+\author{ Frederico B. Klein }
+\date{\today}
+\usepackage{graphicx}
+\newenvironment{Marker}[1]
+    {\begin{center}
+	    \vspace*{2cm}
+	    \begin{tabular*}{\textwidth}{@{\extracolsep{\fill} } l r}
+	    \rotatebox{90}{#1} &
+    }
+    { 
+    \end{tabular*} 
+	    \vspace*{2cm}
+    \end{center}
+    }
+
+
+\begin{document}
+\maketitle
+
+\thispagestyle{empty}
+
+We are using latex to get accurate scaling here. There are easier ways of doing this, but since you are printing a whole page anyway, might as well include some instructions. 
+
+This will print the simplest version of the upperbody AR markers setup. A more complete version would have the complete bundles for each of the bodies. Same can be done for lowerbody. Note the makers need to occupy a large portion of the camera canvas or you will be losing angulare resolution. 
+
+Markers are generated using the script from ar\_track\_alvar with:
+
+\texttt{rosrun ar\_track\_alvar CreateMarker}
+%For more information see:\cite{}
+
+%TORAX:
+\begin{Marker}{TORAX}
+    \centering
+    \fbox{\includegraphics[width=13cm]{MarkerData_0}}
+\end{Marker}
+
+%\includegraphics[width=10cm]{MarkerData_0.png}
+%\includegraphics[width=10cm]{MarkerData_1.png}
+%\pagebreak
+
+%UPPERARM:\\
+\begin{Marker}{UPPERARM}
+    \centering
+    \fbox{\includegraphics[width=12cm]{MarkerData_2}}
+\end{Marker}
+%\includegraphics[width=10cm]{MarkerData_3.png}
+%\includegraphics[width=10cm]{MarkerData_4.png}
+%\includegraphics[width=10cm]{MarkerData_5.png}
+
+%FOREARM:\\
+\begin{Marker}{FOREARM}
+    \centering
+    \fbox{\includegraphics[width=8cm]{MarkerData_6}}
+\end{Marker}
+%\includegraphics[width=10cm]{MarkerData_7.png}
+%\includegraphics[width=10cm]{MarkerData_8.png}
+%\includegraphics[width=10cm]{MarkerData_9.png}
+
+\printbibliography
+\end{document}
+

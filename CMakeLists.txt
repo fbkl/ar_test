@@ -1,13 +1,19 @@
 cmake_minimum_required(VERSION 3.0.2)
 project(ar_test)
 
+set( CMAKE_EXPORT_COMPILE_COMMANDS ON )
 ## Compile as C++11, supported in ROS Kinetic and newer
 # add_compile_options(-std=c++11)
 
 ## Find catkin macros and libraries
 ## if COMPONENTS list like find_package(catkin REQUIRED COMPONENTS xyz)
 ## is used, also find other catkin packages
-find_package(catkin REQUIRED dynamic_reconfigure)
+find_package(catkin REQUIRED COMPONENTS
+	message_generation
+	roscpp
+	tf2_ros
+	interactive_markers
+	dynamic_reconfigure)
 
 ## System dependencies are found with CMake's conventions
 # find_package(Boost REQUIRED COMPONENTS system)
@@ -86,6 +92,7 @@ find_package(catkin REQUIRED dynamic_reconfigure)
 ## Generate dynamic reconfigure parameters in the 'cfg' folder
  generate_dynamic_reconfigure_options(
 	cfg/Tutorials.cfg
+	cfg/CompleteTF.cfg
 #   cfg/DynReconf1.cfg
 #   cfg/DynReconf2.cfg
  )
@@ -100,8 +107,8 @@ find_package(catkin REQUIRED dynamic_reconfigure)
 ## CATKIN_DEPENDS: catkin_packages dependent projects also need
 ## DEPENDS: system dependencies of this project that dependent projects also need
 catkin_package(
-#  INCLUDE_DIRS include
-#  LIBRARIES ar_test
+  INCLUDE_DIRS include
+  LIBRARIES ar_test
 #  CATKIN_DEPENDS other_catkin_pkg
 #  DEPENDS system_lib
 )
@@ -113,24 +120,33 @@ catkin_package(
 ## Specify additional locations of header files
 ## Your package locations should be listed before other locations
 include_directories(
-# include
-# ${catkin_INCLUDE_DIRS}
+ include
+ ${catkin_INCLUDE_DIRS}
+  ${dynamic_reconfigure_INCLUDE_DIRS}
 )
 
 ## Declare a C++ library
-# add_library(${PROJECT_NAME}
-#   src/${PROJECT_NAME}/ar_test.cpp
-# )
+add_library(${PROJECT_NAME}
+   src/${PROJECT_NAME}/ar_test.cpp
+   src/${PROJECT_NAME}/ar_tfb.cpp
+)
 
 ## Add cmake target dependencies of the library
 ## as an example, code may need to be generated before libraries
 ## either from message generation or dynamic reconfigure
-# add_dependencies(${PROJECT_NAME} ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
+ add_dependencies(${PROJECT_NAME} ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS} ${PROJECT_NAME}_gencfg)
+
+ target_link_libraries(${PROJECT_NAME}
+   pthread 
+   ${catkin_LIBRARIES}
+   ${dynamic_reconfigure_LIBRARIES}
+ )
+
 
 ## Declare a C++ executable
 ## With catkin_make all packages are built within a single CMake context
 ## The recommended prefix ensures that target names across packages don't collide
-# add_executable(${PROJECT_NAME}_node src/ar_test_node.cpp)
+add_executable(adjustable_node src/ar_test/adjustable_node.cpp src/ar_test/ar_test.cpp src/ar_test/ar_tfb.cpp)
 
 ## Rename C++ executable without prefix
 ## The above recommended prefix causes long target names, the following renames the
@@ -140,12 +156,15 @@ include_directories(
 
 ## Add cmake target dependencies of the executable
 ## same as for the library above
-# add_dependencies(${PROJECT_NAME}_node ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
+add_dependencies(adjustable_node ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS}
+${PROJECT_NAME}_gencfg 
+	)
 
 ## Specify libraries to link a library or executable target against
-# target_link_libraries(${PROJECT_NAME}_node
-#   ${catkin_LIBRARIES}
-# )
+ target_link_libraries(adjustable_node
+   pthread 
+   ${catkin_LIBRARIES}
+ )
 
 #############
 ## Install ##

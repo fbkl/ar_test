@@ -49,3 +49,16 @@ qtcreator-*
 
 # Catkin custom files
 CATKIN_IGNORE
+
+# Latex stuff
+*.fls
+*.aux
+*.bbl
+*.blg
+*.log
+*.bcf
+*.fdb_latexmk
+*.out
+*.run.xml
+*.synctex.gz
+

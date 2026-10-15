@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<launch>
+	<!-- at least this thing that i saw on the web starts with the principal axis on X  -->
+	<!--x y z, z is up btw         qx qy qz qw -->
+	<!--or x y z  and tait angles, but inverted order!!!! y p r  -->
+
+	<!-- node pkg="tf" type="static_transform_publisher" name="camera_link_broadcaster" args="0 0 1 0 0 0 1 map usb_cam 100" / -->
+	<!-- node pkg="tf" type="static_transform_publisher" name="camera_link_broadcaster" args="0 0 1 1.570796325 0  1.570796325 map usb_cam 100" / -->
+	<!-- node pkg="tf" type="static_transform_publisher" name="camera_link_broadcaster" args="0 0 1 0 0 1.570796325 map usb_cam 100" / -->
+	<node pkg="tf" type="static_transform_publisher" name="camera_link_broadcaster_acer" args="0 0 1 3.14159265 3.14159265 1.570796325 map usb_cam_acer 100" />
+
+	<arg name="marker_size" default="4.0" />
+	<arg name="max_new_marker_error" default="0.08" />
+	<arg name="max_track_error" default="0.2" />
+	<arg name="cam_image_topic" default="/usb_cam_acer/image_rect_color" />
+	<arg name="cam_info_topic" default="/usb_cam_acer/camera_info" />
+	<arg name="output_frame" default="/usb_cam_acer" />
+	<arg name="bundle_files" default="$(find ar_test)/test_cube.xml" />
+
+	<node name="ar_track_alvar_acer" pkg="ar_track_alvar" type="findMarkerBundlesNoKinect" respawn="false" output="screen"
+	 args="$(arg marker_size) $(arg max_new_marker_error) $(arg max_track_error) $(arg cam_image_topic) $(arg cam_info_topic)
+	 $(arg output_frame) $(arg bundle_files)" />
+</launch>
+

@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<launch>
+<node name="cb" pkg="cometa_bridge" type="node" respawn="false" output="screen">
+    <param name="num_imus" value="3"/>
+    <param name="publish_tfs" value="false"/>
+  </node>
+
+<node pkg="tf" type="static_transform_publisher" name="imu0_broadcaster" args="0.5 0.7 1 0 0 0 map imu_o0 10" />
+<node pkg="tf" type="static_transform_publisher" name="imu1_broadcaster" args="0. 0.7 1 0 0 0 map imu_o1 10" />
+<node pkg="tf" type="static_transform_publisher" name="imu2_broadcaster" args="-0.5 0.7 1 0 0 0 map imu_o2 10" />
+
+
+<group>
+	<remap from="imu" to="imu0"/>
+  <node pkg="imu_complementary_filter" type="complementary_filter_node"
+      name="complementary_filter_gain_node" output="screen">
+    <param name="do_bias_estimation" value="true"/>
+    <param name="do_adaptive_gain" value="true"/>
+    <param name="use_mag" value="false"/>
+    <param name="gain_acc" value="0.01"/>
+    <param name="fixed_frame" value="imu11"/>
+    <param name="publish_debug_topics" value="true"/>
+    <param name="publish_tf" value="true"/>
+    <param name="reverse_tf" value="true"/>
+  </node>
+
+</group>
+
+</launch>
+

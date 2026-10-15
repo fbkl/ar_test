@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<launch>
+<node name="cb" pkg="cometa_bridge" type="node" respawn="false" output="screen">
+    <param name="num_imus" value="3"/>
+  </node>
+
+<node pkg="tf" type="static_transform_publisher" name="imu0_broadcaster" args="0.5 0.7 1 0 0 0 map imu_o0 10" />
+<node pkg="tf" type="static_transform_publisher" name="imu1_broadcaster" args="0.0 0.7 1 0 0 0 map imu_o1 10" />
+<node pkg="tf" type="static_transform_publisher" name="imu2_broadcaster" args="-0.5 0.7 1 0 0 0 map imu_o2 10" />
+
+
+</launch>
+
