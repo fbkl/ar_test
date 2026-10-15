@@ -1,0 +1,727 @@
+% bundle_geometry.tex
+%
+% How to recompute an ar_track_alvar bundle file (bundles/room.xml) from
+% observations, derived from scratch.  Written to be re-read, not skimmed:
+% every step is spelled out, including the ones that look obvious and are
+% exactly where sign errors live.
+%
+% Build with:  pdflatex bundle_geometry.tex
+
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[margin=2.4cm]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{xcolor}
+\usepackage[colorlinks=true,linkcolor=blue!50!black,urlcolor=blue!50!black]{hyperref}
+\usepackage{enumitem}
+
+\newcommand{\T}[2]{T_{#1 \leftarrow #2}}   % transform: takes #2-coords, gives #1-coords
+\newcommand{\R}[2]{R_{#1 \leftarrow #2}}
+\newcommand{\vt}[1]{\mathbf{#1}}
+\newcommand{\xh}{\hat{\vt{x}}}
+\newcommand{\yh}{\hat{\vt{y}}}
+\newcommand{\zh}{\hat{\vt{z}}}
+
+\title{Recomputing an AR bundle file from scratch\\
+       \large the geometry, with nothing skipped}
+\date{}
+
+\begin{document}
+\maketitle
+
+\section*{What this document is for}
+
+A bundle file (\texttt{bundles/room.xml}) tells \texttt{ar\_track\_alvar} where several
+printed markers sit \emph{relative to each other}. If the markers get moved, the file is
+wrong, and every pose that depends on it is wrong in a way that still looks plausible.
+
+The file cannot be measured conveniently with a tape measure (the numbers are corner
+positions in a frame that may not physically exist), but it \emph{can} be computed from
+two observations. This document derives that computation from first principles, so that
+it can be redone after any rearrangement without rediscovering the algebra.
+
+Nothing here is harder than vectors and matrix multiplication. The difficulty is
+entirely bookkeeping: which frame is a number expressed in, and which direction does a
+transform go. Sections~\ref{sec:frames}--\ref{sec:inverse} are about exactly that, and
+they are the part worth reading slowly.
+
+\tableofcontents
+
+% ======================================================================
+\section{Points, frames, and what a ``pose'' is}
+\label{sec:frames}
+
+A \emph{point} in the room is a physical thing: a corner of a printed square. It has no
+numbers of its own. Numbers appear only once a \emph{frame} is chosen.
+
+A frame is an origin plus three perpendicular unit axes $\xh,\yh,\zh$, forming a
+right-handed set ($\xh \times \yh = \zh$). The coordinates of a point in that frame are
+the three distances you travel along those axes to reach it.
+
+The same physical point therefore has different coordinates in different frames. Writing
+$\vt{p}$ with no indication of frame is the single most common source of error in this
+kind of work, so in this document every quantity carries its frame.
+
+Four frames appear:
+
+\begin{center}
+\begin{tabular}{ll}
+\toprule
+$C$ & the camera (\texttt{radius\_infra1\_optical\_frame}) \\
+$M$ & the \emph{master} frame of the bundle (marker index 0; in our room, fictional) \\
+$11$ & the frame of the printed marker with id 11 \\
+$12$ & the frame of the printed marker with id 12 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+A \emph{pose} of frame $B$ relative to frame $A$ is two things together: where $B$'s
+origin sits, expressed in $A$ coordinates, and how $B$'s axes are turned relative to
+$A$'s. That is exactly the information needed to convert coordinates from $B$ into $A$,
+which is why ``pose of $B$ in $A$'' and ``transform from $B$ to $A$'' are the same object.
+
+% ======================================================================
+\section{Rotation matrices: what the columns mean}
+
+A rotation is stored as a $3\times3$ matrix $\R{A}{B}$. The definition worth memorising
+is this one:
+
+\begin{quote}
+\textbf{The columns of $\R{A}{B}$ are the axes of frame $B$, written in $A$ coordinates.}
+\end{quote}
+
+So if $B$'s $\xh$ axis points along $A$'s $\zh$ axis, the first column of $\R{A}{B}$ is
+$(0,0,1)^{\!\top}$. That is the whole content of the matrix; everything else follows.
+
+Why that definition makes the matrix do the right thing: a point with $B$-coordinates
+$\vt{p}_B = (p_1,p_2,p_3)^{\!\top}$ is, by the meaning of coordinates, the combination
+$p_1 \xh_B + p_2 \yh_B + p_3 \zh_B$. Writing each of those axis vectors in $A$
+coordinates and adding them up is precisely the matrix--vector product:
+\begin{equation}
+  \vt{p}_A \;=\; p_1\,(\text{col}_1) + p_2\,(\text{col}_2) + p_3\,(\text{col}_3)
+           \;=\; \R{A}{B}\, \vt{p}_B .
+\end{equation}
+
+\paragraph{Properties, and how to check a matrix is really a rotation.}
+Because the columns are perpendicular unit vectors:
+\begin{align}
+  \R{A}{B}^{\!\top} \R{A}{B} &= I  &&\text{(columns orthonormal)}\\
+  \det \R{A}{B} &= +1            &&\text{(right-handed, not mirrored)}\\
+  \R{A}{B}^{-1} &= \R{A}{B}^{\!\top} &&\text{(the inverse is free)}
+\end{align}
+The determinant check matters. A matrix with $\det = -1$ is a reflection: it will look
+almost right, it will pass the orthonormality test, and it will produce a world that is
+mirror-imaged. If a fit ever returns $\det = -1$, something upstream is wrong --- do not
+``fix'' it by flipping a sign at random.
+
+\paragraph{How big is a rotation?} The angle $\theta$ of a rotation matrix $R$ is
+\begin{equation}
+  \theta = \arccos\!\left( \frac{\operatorname{trace}(R) - 1}{2} \right).
+  \label{eq:angle}
+\end{equation}
+This is useful for sanity checks: ``how far did my correction turn the marker?'' is
+answered by applying~\eqref{eq:angle} to the correction matrix. Clamp the argument into
+$[-1,1]$ before calling \texttt{arccos}, because rounding will occasionally hand you
+$1.0000000002$.
+
+% ======================================================================
+\section{Homogeneous transforms: rotation and translation in one object}
+
+Rotation alone cannot express ``and also, the origin is over there''. The full transform
+is
+\begin{equation}
+  \vt{p}_A = \R{A}{B}\,\vt{p}_B + \vt{t}_{A\leftarrow B},
+\end{equation}
+where $\vt{t}_{A\leftarrow B}$ is the position of $B$'s origin in $A$ coordinates.
+
+Carrying a matrix and a vector around separately is error-prone, so both are packed into
+one $4\times4$ matrix:
+\begin{equation}
+  \T{A}{B} =
+  \begin{pmatrix}
+    \R{A}{B} & \vt{t}_{A\leftarrow B} \\[2pt]
+    \vt{0}^{\!\top} & 1
+  \end{pmatrix},
+  \qquad
+  \begin{pmatrix} \vt{p}_A \\ 1 \end{pmatrix}
+  = \T{A}{B}
+  \begin{pmatrix} \vt{p}_B \\ 1 \end{pmatrix}.
+\end{equation}
+The trailing $1$ on the point is what lets the translation column act; the bottom row
+$(0,0,0,1)$ keeps that $1$ in place after multiplication. There is no deeper meaning ---
+it is a bookkeeping trick that makes composition work.
+
+\subsection{Composition: the cancellation rule}
+\label{sec:compose}
+
+The reason the arrow notation is worth the extra typing:
+\begin{equation}
+  \boxed{\;\T{A}{B}\,\T{B}{C} = \T{A}{C}\;}
+  \label{eq:chain}
+\end{equation}
+The inner labels must match and they cancel, exactly like units. Read it right to left:
+start with $C$-coordinates, the right-hand factor turns them into $B$-coordinates, the
+left-hand factor turns those into $A$-coordinates.
+
+If a product you have written does not cancel --- say $\T{A}{B}\,\T{C}{B}$ --- it is
+meaningless, and no amount of transposing will rescue it. One of the two factors needs
+inverting first. Checking cancellation before computing anything catches most mistakes
+in this subject.
+
+\subsection{The inverse}
+\label{sec:inverse}
+
+Reversing a transform is not ``put a minus sign on everything''. Starting from
+$\vt{p}_A = R\,\vt{p}_B + \vt{t}$ and solving for $\vt{p}_B$:
+\begin{align}
+  \vt{p}_A - \vt{t} &= R\,\vt{p}_B \\
+  R^{\!\top}(\vt{p}_A - \vt{t}) &= \vt{p}_B
+    \qquad\text{(using } R^{-1} = R^{\!\top}\text{)}\\
+  \vt{p}_B &= R^{\!\top}\vt{p}_A \;+\; \bigl(-R^{\!\top}\vt{t}\bigr).
+\end{align}
+So the inverse has rotation $R^{\!\top}$ and translation $-R^{\!\top}\vt{t}$:
+\begin{equation}
+  \T{A}{B}^{-1} \;=\; \T{B}{A} \;=\;
+  \begin{pmatrix}
+    R^{\!\top} & -R^{\!\top}\vt{t} \\[2pt]
+    \vt{0}^{\!\top} & 1
+  \end{pmatrix}.
+  \label{eq:inverse}
+\end{equation}
+The $-R^{\!\top}\vt{t}$ term is the one people drop. Geometrically: the new translation
+has to be the old origin's position \emph{seen from the other frame}, which involves
+rotating it, not just negating it.
+
+% ======================================================================
+\section{What is actually in the bundle file}
+
+Here is the relevant part of the file, before the correction:
+
+\begin{quote}\ttfamily\small
+\begin{tabbing}
+\texttt{<marker index="0" status="1">}\\
+\quad\=\texttt{<corner x="6.5"~~y="-6.5"~~~~z="0" />}\\
+\>\texttt{<corner x="6.5"~~y="6.5"~~~~~z="0" />}\\
+\>\texttt{<corner x="-6.5" y="6.5"~~~~~z="0" />}\\
+\>\texttt{<corner x="-6.5" y="-6.5"~~~~z="0" />}\\
+\texttt{</marker>}\\[4pt]
+\texttt{<marker index="12" status="1">}\\
+\>\texttt{<corner x="-59"~~y="-4"~~z="51" />}\\
+\>\texttt{<corner x="-59"~~y="9"~~~z="51" />}\\
+\>\texttt{<corner x="-59"~~y="9"~~~z="64" />}\\
+\>\texttt{<corner x="-59"~~y="-4"~~z="64" />}\\
+\texttt{</marker>}
+\end{tabbing}
+\end{quote}
+
+Three facts, none of which the file states:
+
+\begin{enumerate}[leftmargin=*]
+\item \textbf{The units are centimetres.} The markers are $13\,$cm squares and the
+      half-width $6.5$ appears everywhere. Everything published on ROS topics is in
+      metres. Convert once, early, and write down which unit you are in.
+
+\item \textbf{All corner coordinates are expressed in the master frame $M$.} The master
+      is the marker with \texttt{index="0"}. This is why its own corners are the clean
+      symmetric numbers $(\pm 6.5, \pm 6.5, 0)$: a marker expressed in its own frame
+      sits at the origin, flat in the $z=0$ plane.
+
+\item \textbf{The master need not exist physically.} In our room, marker 0 was never
+      printed or placed. That is allowed --- $M$ is just the coordinate system the other
+      markers are described in. It has a consequence we return to in
+      Section~\ref{sec:gauge}.
+\end{enumerate}
+
+\paragraph{The local corner convention.} Reading marker 0's entry tells us the order and
+orientation alvar expects for a marker's own corners. With half-width $s = 6.5$\,cm:
+\begin{equation}
+  \vt{l}_0 = \begin{pmatrix}s\\-s\\0\end{pmatrix}\!,\quad
+  \vt{l}_1 = \begin{pmatrix}s\\s\\0\end{pmatrix}\!,\quad
+  \vt{l}_2 = \begin{pmatrix}-s\\s\\0\end{pmatrix}\!,\quad
+  \vt{l}_3 = \begin{pmatrix}-s\\-s\\0\end{pmatrix}.
+  \label{eq:local}
+\end{equation}
+So in a marker's own frame: $\xh$ runs from corner 3 to corner 0, $\yh$ runs from corner
+0 to corner 1, and $\zh$ points out of the printed face. \emph{The order of the four
+corners in the XML is part of the data.} Permuting them silently rotates or flips the
+marker.
+
+% ======================================================================
+\section{From four corners to a transform}
+\label{sec:corners2T}
+
+Given a marker's four corners $\vt{w}_0 \ldots \vt{w}_3$ in master coordinates, we want
+$\T{M}{k}$, the pose of that marker in the master frame.
+
+Use the definition from Section 2 --- the columns of a rotation matrix are the child
+frame's axes expressed in the parent. We know from~\eqref{eq:local} which pairs of
+corners define those axes, so we just read them off:
+
+\begin{align}
+  \xh &= \frac{\vt{w}_0 - \vt{w}_3}{\lVert \vt{w}_0 - \vt{w}_3 \rVert}
+        &&\text{(the local $+x$ direction)} \label{eq:xax}\\[2pt]
+  \yh &= \frac{\vt{w}_1 - \vt{w}_0}{\lVert \vt{w}_1 - \vt{w}_0 \rVert}
+        &&\text{(the local $+y$ direction)} \label{eq:yax}\\[2pt]
+  \zh &= \xh \times \yh
+        &&\text{(out of the face, right-handed)} \label{eq:zax}
+\end{align}
+and
+\begin{equation}
+  \R{M}{k} = \bigl(\, \xh \;\big|\; \yh \;\big|\; \zh \,\bigr),
+  \qquad
+  \vt{t}_{M\leftarrow k} = \tfrac{1}{4}\textstyle\sum_{i=0}^{3} \vt{w}_i .
+  \label{eq:fit}
+\end{equation}
+
+The translation is just the centroid of the four corners, because the local corners
+in~\eqref{eq:local} are symmetric about the origin and therefore average to zero.
+
+\paragraph{Why $\zh$ comes from a cross product rather than the corners.} The four
+corners are coplanar, so they contain no information about which side of the plane is
+``front'' beyond the handedness convention. Taking $\xh \times \yh$ enforces
+$\det = +1$ by construction.
+
+\paragraph{Checks worth doing every time.}
+\begin{itemize}[leftmargin=*,itemsep=1pt]
+\item $\lVert \vt{w}_0 - \vt{w}_3 \rVert$ and $\lVert \vt{w}_1 - \vt{w}_0 \rVert$ should
+      both equal the marker width ($13$\,cm). If they differ, the XML entry is not a
+      square and was hand-fitted.
+\item $\xh \cdot \yh$ should be $0$. If it is not, the entry is not even a rectangle.
+\item Applying~\eqref{eq:fit} to marker 0's own corners must give the identity. It is a
+      free unit test of your implementation, and it confirms you have the corner order
+      right.
+\end{itemize}
+
+\paragraph{When the corners are not perfectly consistent.} Marker 11's entry in our file
+has side lengths $13.0$ and $12.9$\,cm, so no rigid transform reproduces it exactly.
+Equations~\eqref{eq:xax}--\eqref{eq:zax} will still return something, but it quietly
+favours whichever two corners you happened to use. The honest alternative is the
+\emph{Kabsch} fit, which uses all four corners and minimises the total squared error:
+
+\begin{enumerate}[leftmargin=*,itemsep=1pt]
+\item Centre both sets: $\tilde{\vt{l}}_i = \vt{l}_i - \bar{\vt{l}}$ and
+      $\tilde{\vt{w}}_i = \vt{w}_i - \bar{\vt{w}}$.
+\item Build $H = \sum_i \tilde{\vt{l}}_i \tilde{\vt{w}}_i^{\!\top}$ (a $3\times3$ matrix).
+\item Take the singular value decomposition $H = U S V^{\!\top}$.
+\item Set $R = V \operatorname{diag}(1,1,d) U^{\!\top}$ with
+      $d = \operatorname{sign}\bigl(\det(V U^{\!\top})\bigr)$.
+\item Then $\vt{t} = \bar{\vt{w}} - R\,\bar{\vt{l}}$.
+\end{enumerate}
+The $d$ term is what prevents the answer from coming out as a reflection. The leftover
+per-corner distances after applying $R,\vt{t}$ are a genuine residual: for a clean entry
+they are $0$, and for marker 11 they are $0.5$\,mm at every corner.
+
+% ======================================================================
+\section{From a transform back to four corners}
+
+To write a marker back into the XML, run Section~\ref{sec:corners2T} backwards. For each
+of the four local corners in~\eqref{eq:local}:
+\begin{equation}
+  \vt{w}_i \;=\; \R{M}{k}\,\vt{l}_i \;+\; \vt{t}_{M \leftarrow k},
+  \qquad i = 0,1,2,3,
+  \label{eq:back}
+\end{equation}
+keeping the same order, and converting metres back to centimetres.
+
+Do not expect the new numbers to be as tidy as the old ones. The original entry had
+every $x$ equal to $-59$ because the marker was assumed perfectly parallel to a wall.
+A measured marker is not, so all four $x$ values will differ slightly. That is the
+measurement, not a mistake.
+
+% ======================================================================
+\section{What the camera gives us}
+
+\texttt{ar\_track\_alvar} publishes visualisation markers on
+\texttt{visualization\_marker}. Two namespaces matter:
+
+\begin{center}
+\begin{tabular}{ll}
+\toprule
+\texttt{basic\_shapes}, id $=k$ & where alvar thinks \emph{the individual marker $k$} is \\
+\texttt{main\_shapes}, id $=0$  & where alvar thinks \emph{the bundle's master frame} is \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Both are poses in the camera frame $C$. The second one is the interesting one, and the
+reason is worth stating carefully:
+
+\begin{quote}
+To report the master pose, alvar must combine what it \emph{sees} (a marker) with what it
+has been \emph{told} (that marker's position in the bundle file). So
+\texttt{main\_shapes} is part measurement, part assumption. \textbf{If the bundle file is
+wrong, \texttt{main\_shapes} is wrong --- and it is wrong by a different amount depending
+on which marker is currently visible.} That difference is the signal we exploit.
+\end{quote}
+
+Hence the experiment:
+
+\begin{enumerate}[leftmargin=*,itemsep=1pt]
+\item Cover marker 12. Only 11 is visible. Record \texttt{main\_shapes}. Call it $A$.
+\item Cover marker 11. Only 12 is visible. Record \texttt{main\_shapes}. Call it $B$.
+\item \textbf{Do not move the camera between the two recordings.}
+\end{enumerate}
+
+If the bundle file were correct, $A$ and $B$ would be identical. They are not.
+
+% ======================================================================
+\section{The derivation}
+\label{sec:derivation}
+
+Name the quantities, each with its frames:
+
+\begin{center}
+\begin{tabular}{lll}
+\toprule
+symbol & meaning & known? \\
+\midrule
+$A = \T{C}{M}^{(11)}$ & master pose, computed by alvar from marker 11 & measured \\
+$B = \T{C}{M}^{(12)}$ & master pose, computed by alvar from marker 12 & measured \\
+$X = \T{M}{12}$       & marker 12's pose in the master frame, \emph{per the old XML} & known, wrong \\
+$C_{12} = \T{C}{12}$  & where marker 12 truly is, seen by the camera & unknown \\
+$X_{\text{true}}$     & what the XML \emph{should} say & what we want \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\paragraph{Step 1: write down what alvar did to produce $B$.}
+It measured marker 12 directly, giving $\T{C}{12}$, then chained through the bundle file
+to reach the master:
+\begin{equation}
+  B = \T{C}{M} = \underbrace{\T{C}{12}}_{\text{measured}} \; \underbrace{\T{12}{M}}_{\text{from XML}}
+    = C_{12} \, X^{-1}.
+  \label{eq:Bdef}
+\end{equation}
+Check the cancellation: $C \leftarrow 12$ then $12 \leftarrow M$ gives $C \leftarrow M$. Good.
+Note $\T{12}{M} = X^{-1}$, because the XML stores $X = \T{M}{12}$, the other direction.
+
+\paragraph{Step 2: eliminate the unknown.}
+Rearranging~\eqref{eq:Bdef} gives the camera's actual view of marker 12:
+\begin{equation}
+  C_{12} = B\,X.
+  \label{eq:C12}
+\end{equation}
+This is the key move. $C_{12}$ is a \emph{measurement} that was never published directly,
+but it can be reconstructed, because alvar's error came entirely from the XML and we
+know what the XML said.
+
+\paragraph{Step 3: decide what the master frame means.}
+The correct XML entry is marker 12's pose in the master frame:
+\begin{equation}
+  X_{\text{true}} = \T{M}{12} = \T{M}{C}\;\T{C}{12} = A^{-1}\,C_{12},
+\end{equation}
+where we took $A$ --- the estimate from marker 11 --- as the definition of $\T{C}{M}$.
+Section~\ref{sec:gauge} explains why that is a legitimate choice and not an assumption
+being smuggled in.
+
+\paragraph{Step 4: substitute~\eqref{eq:C12} and finish.}
+\begin{equation}
+  \boxed{\;X_{\text{true}} \;=\; A^{-1}\,B\,X\;}
+  \label{eq:result}
+\end{equation}
+
+Read the result right to left: take the old XML entry, apply the discrepancy $A^{-1}B$
+between the two master estimates, and you have the corrected entry. The factor $A^{-1}B$
+is \emph{exactly} the error that was in the file --- it is the transform that moves
+``where 12 claimed the master was'' onto ``where 11 says the master is''.
+
+\paragraph{Sanity check on the formula.} If the XML had been right, $A$ and $B$ would be
+equal, so $A^{-1}B = I$ and $X_{\text{true}} = X$: the formula leaves a correct file
+alone. That check costs nothing and catches an inverted factor immediately.
+
+% ======================================================================
+\section{Turning the published numbers into matrices}
+
+ROS publishes orientations as quaternions $(q_x, q_y, q_z, q_w)$ --- note that ROS puts
+$w$ \emph{last}, while most textbooks put it first. Getting this wrong produces a
+rotation that is wrong but not obviously wrong.
+
+First normalise, $\lVert q \rVert = 1$, then
+\begin{equation}
+  R =
+  \begin{pmatrix}
+    1 - 2(q_y^2 + q_z^2) & 2(q_x q_y - q_z q_w) & 2(q_x q_z + q_y q_w) \\
+    2(q_x q_y + q_z q_w) & 1 - 2(q_x^2 + q_z^2) & 2(q_y q_z - q_x q_w) \\
+    2(q_x q_z - q_y q_w) & 2(q_y q_z + q_x q_w) & 1 - 2(q_x^2 + q_y^2)
+  \end{pmatrix}.
+  \label{eq:q2R}
+\end{equation}
+Always verify $R^{\!\top}R = I$ and $\det R = +1$ afterwards. If the quaternion was not
+normalised, the first check fails and tells you so.
+
+\subsection{Averaging many samples}
+
+A single frame is noisy. Record a few seconds and average.
+
+\paragraph{Translations} average normally: add them up, divide by the count.
+
+\paragraph{Rotations do not.} Averaging rotation matrices entry by entry gives a matrix
+that is not a rotation. There is also a sign trap: $q$ and $-q$ describe the
+\emph{same} rotation, so a naive mean of samples that happen to differ in sign tends
+toward zero.
+
+The standard fix:
+\begin{enumerate}[leftmargin=*,itemsep=1pt]
+\item Normalise every quaternion.
+\item Pick one as a reference. For every other sample, if $q \cdot q_{\text{ref}} < 0$,
+      replace $q$ by $-q$. Now they all live in the same hemisphere.
+\item Stack them as the rows of an $N \times 4$ matrix $Q$.
+\item Form $Q^{\!\top}Q$ (a $4\times4$ symmetric matrix) and take its eigenvector for the
+      largest eigenvalue. That eigenvector is the average quaternion.
+\end{enumerate}
+
+Step 4 looks like magic but is just least squares: it finds the unit quaternion most
+aligned with all the samples at once. For tightly clustered samples it agrees with the
+naive mean to several decimals; it is the sign handling in step 2 that does most of the
+work in practice.
+
+\paragraph{Report the spread, not just the mean.} The standard deviation of the
+translations and the maximum angle between each sample and the mean tell you whether the
+recording was any good. For the data this document is based on, the 58 samples of $B$
+had a translation spread of $0.3$\,mm and a rotation spread of $0.03^\circ$ --- i.e.\
+the camera and markers really were static.
+
+Note what that does and does not prove: it is \emph{precision}, not accuracy. A
+systematically wrong pose can be extremely repeatable.
+
+% ======================================================================
+\section{Worked example with the real numbers}
+
+Units are metres throughout this section; conversion back to centimetres happens at the
+very end.
+
+\subsection{Input $A$ --- master seen through marker 11}
+
+One recorded sample:
+\begin{equation*}
+  \vt{t}_A = \begin{pmatrix} 0.181993 \\ 0.633671 \\ -0.018187 \end{pmatrix},
+  \qquad
+  q_A = (0.236931,\; 0.694806,\; -0.650365,\; 0.195279).
+\end{equation*}
+Through~\eqref{eq:q2R}:
+\begin{equation*}
+  R_A =
+  \begin{pmatrix}
+    -0.811460 &  0.583247 & -0.036821 \\
+     0.075237 &  0.041779 & -0.996290 \\
+    -0.579545 & -0.811220 & -0.077783
+  \end{pmatrix}.
+\end{equation*}
+
+\subsection{Input $B$ --- master seen through marker 12}
+
+Average of 58 samples:
+\begin{equation*}
+  \vt{t}_B = \begin{pmatrix} -0.213286 \\ 0.584412 \\ 0.262373 \end{pmatrix},
+  \qquad
+  q_B = (0.223091,\; 0.678418,\; -0.676997,\; 0.177917),
+\end{equation*}
+\begin{equation*}
+  R_B =
+  \begin{pmatrix}
+    -0.837152 &  0.543597 & -0.060659 \\
+     0.061799 & -0.016188 & -0.997957 \\
+    -0.543468 & -0.839190 & -0.020042
+  \end{pmatrix}.
+\end{equation*}
+
+\subsection{Input $X$ --- the old XML entry for marker 12}
+
+Corners $(-59,-4,51),\,(-59,9,51),\,(-59,9,64),\,(-59,-4,64)$ in cm, i.e.
+$(-0.59,-0.04,0.51)$ etc.\ in metres. Applying~\eqref{eq:xax}--\eqref{eq:fit}:
+
+\begin{align*}
+  \xh &= \frac{(-0.59,-0.04,0.51) - (-0.59,-0.04,0.64)}{0.13}
+       = \frac{(0,0,-0.13)}{0.13} = (0,0,-1), \\
+  \yh &= \frac{(-0.59,0.09,0.51) - (-0.59,-0.04,0.51)}{0.13}
+       = \frac{(0,0.13,0)}{0.13} = (0,1,0), \\
+  \zh &= \xh \times \yh = (0,0,-1) \times (0,1,0) = (1,0,0),
+\end{align*}
+so, stacking those as \emph{columns},
+\begin{equation*}
+  X =
+  \begin{pmatrix}
+     0 & 0 & 1 & -0.590 \\
+     0 & 1 & 0 &  0.025 \\
+    -1 & 0 & 0 &  0.575 \\
+     0 & 0 & 0 &  1
+  \end{pmatrix}.
+\end{equation*}
+The centroid $(-0.590,\,0.025,\,0.575)$ is the average of the four corners, as promised.
+
+It is worth pausing on what this matrix says: marker 12's own $x$ axis points along the
+master's $-z$, its $y$ along the master's $+y$, and its face normal along the master's
+$+x$. In words, it is on a wall to one side, facing inward --- which matches the physical
+room, and is a good sign that the corner order was read correctly.
+
+\subsection{Step 1: invert $A$}
+
+Using~\eqref{eq:inverse}, $R_A^{\!\top}$ and $-R_A^{\!\top}\vt{t}_A$:
+\begin{equation*}
+  A^{-1} =
+  \begin{pmatrix}
+    -0.811460 &  0.075237 & -0.579545 &  0.089465 \\
+     0.583247 &  0.041779 & -0.811220 & -0.147374 \\
+    -0.036821 & -0.996290 & -0.077783 &  0.636607 \\
+     0        &  0        &  0        &  1
+  \end{pmatrix}.
+\end{equation*}
+Observe that the rotation block is $R_A$ transposed --- rows and columns swapped --- while
+the translation is \emph{not} $-\vt{t}_A$. That is~\eqref{eq:inverse} in action.
+
+\subsection{Step 2: the discrepancy $A^{-1}B$}
+
+\begin{equation*}
+  A^{-1}B =
+  \begin{pmatrix}
+     0.998929 &  0.044023 & -0.014245 &  0.154450 \\
+    -0.044812 &  0.997143 & -0.060814 & -0.460199 \\
+     0.011527 &  0.061388 &  0.998047 &  0.041808 \\
+     0        &  0        &  0        &  1
+  \end{pmatrix}.
+\end{equation*}
+
+This single matrix is the entire error that was sitting in the bundle file. Decoded:
+\begin{itemize}[leftmargin=*,itemsep=1pt]
+\item translation $(15.4,\,-46.0,\,4.2)$\,cm --- the two estimates of the master frame
+      disagreed by about half a metre;
+\item rotation angle, from~\eqref{eq:angle} with
+      $\operatorname{trace} = 2.994119$: $\theta = 4.39^\circ$.
+\end{itemize}
+A near-identity rotation block with a large translation is the signature of ``a marker
+got moved'', as opposed to ``a marker got re-oriented''. Worth noting for diagnosis next
+time.
+
+\subsection{Step 3: apply it}
+
+\begin{equation*}
+  X_{\text{true}} = (A^{-1}B)\,X =
+  \begin{pmatrix}
+     0.014245 & 0.044023 &  0.998929 & -0.442008 \\
+     0.060814 & 0.997143 & -0.044812 & -0.443800 \\
+    -0.998047 & 0.061388 &  0.011527 &  0.610419 \\
+     0        & 0        &  0        &  1
+  \end{pmatrix}.
+\end{equation*}
+Centre moved from $(-59.0,\,2.5,\,57.5)$ to $(-44.2,\,-44.4,\,61.0)$\,cm, a shift of
+$49.3$\,cm, with the marker turned by $4.39^\circ$.
+
+\subsection{Step 4: back to corners}
+
+Via~\eqref{eq:back} with $s = 0.065$\,m, then $\times 100$:
+
+\begin{quote}\ttfamily\small
+\begin{tabbing}
+\texttt{<marker index="12" status="1">}\\
+\quad\=\texttt{<corner x="-44.39" y="-50.47" z="54.16" />}\\
+\>\texttt{<corner x="-43.82" y="-37.50" z="54.95" />}\\
+\>\texttt{<corner x="-44.01" y="-38.29" z="67.93" />}\\
+\>\texttt{<corner x="-44.58" y="-51.26" z="67.13" />}\\
+\texttt{</marker>}
+\end{tabbing}
+\end{quote}
+
+The four $x$ values are no longer identical, and the $z$ values no longer come in two
+matching pairs. That is the $4.39^\circ$ showing up in the numbers.
+
+% ======================================================================
+\section{Why the master frame is a free choice}
+\label{sec:gauge}
+
+In Step 3 of Section~\ref{sec:derivation} we declared that $A$ --- the estimate through
+marker 11 --- \emph{defines} the master frame. Why is that allowed, when $A$ is just as
+much a measurement as $B$?
+
+Because the master frame is not observable. Marker 0 was never placed. Nothing in the
+room, in the camera, or in the data knows where $M$ ``really'' is. What the bundle file
+genuinely encodes is the \emph{relative} geometry of markers 11 and 12; the master is
+only the coordinate system that relationship is written in.
+
+Shifting $M$ anywhere changes every entry in the file, but changes no prediction the
+system makes --- the camera poses that come out the other end are identical. A degree of
+freedom with no observable consequence is called a \emph{gauge} freedom, and the usual
+practice is to pin it to something convenient. Leaving marker 11's entry untouched is
+convenient: it means a re-measurement only ever edits the markers that moved.
+
+Two consequences:
+\begin{itemize}[leftmargin=*,itemsep=1pt]
+\item Marker 11's entry has become \emph{definitional}. It cannot be ``wrong'' any more
+      in the sense that matters, because it is what $M$ means. (It can still be wrong in
+      the sense of not being a $13\,$cm square --- see Section~\ref{sec:corners2T}.)
+\item If you ever want $M$ to coincide with something physical --- the floor, say, as was
+      originally intended --- that is a separate decision requiring a separate
+      measurement, and it changes every entry in the file at once.
+\end{itemize}
+
+% ======================================================================
+\section{What this method cannot tell you}
+
+\paragraph{There is no residual.} Two pose observations, one rigid transform to solve
+for, six unknowns and six constraints: the problem is \emph{exactly determined}. It fits
+perfectly, always, by construction. Applying the correction makes $A$ and $B$ agree
+because that is literally the equation we solved --- not because the answer is right.
+
+So this procedure cannot report its own accuracy. To get a residual you need redundancy:
+more viewpoints than unknowns. Record the pair from three or four camera positions and
+solve for the one $X$ that best fits all of them; the leftover disagreement is then a
+real error estimate.
+
+\paragraph{The output inherits the weaker input.} The result is only as good as the worse
+of $A$ and $B$. In the example, $B$ averaged 58 samples while $A$ was a single frame ---
+so the final numbers carry single-frame noise regardless of how carefully $B$ was
+measured. Record both with the same care.
+
+\paragraph{Single-marker pose has an ambiguity.} Estimating a pose from one planar square
+is ill-conditioned out of plane: there are two poses that project to nearly the same
+image, differing by a flip about an axis in the marker plane. Solvers sometimes pick the
+wrong one, especially for markers that are small in the image, viewed close to
+head-on, or far away. A sudden tens-of-degrees change between consecutive samples is the
+signature. Both of $A$ and $B$ are single-marker estimates, so this is the failure mode
+to watch for.
+
+\paragraph{A camera that moved invalidates everything.} The derivation assumes $A$ and
+$B$ share one camera frame $C$. Nothing in the data reveals a bump between recordings.
+Take both recordings back to back.
+
+% ======================================================================
+\section{The recipe, next time the room changes}
+
+\begin{enumerate}[leftmargin=*]
+\item Point the camera so that \emph{both} markers are comfortably in view, reasonably
+      large in the image, and not edge-on. Then do not touch it.
+
+\item Cover marker 12. Record \texttt{visualization\_marker} for a few seconds. Keep only
+      the messages with \texttt{ns: "main\_shapes"}. This is $A$.
+
+\item Uncover 12, cover 11. Record again, same way. This is $B$.
+
+\item Average each set: mean translation, eigenvector-method quaternion. Print the
+      spreads and look at them before continuing.
+
+\item Build $A$ and $B$ as $4\times4$ matrices using~\eqref{eq:q2R}.
+
+\item Read the \emph{old} XML entry for marker 12 and build $X$
+      with~\eqref{eq:xax}--\eqref{eq:fit}. Convert cm to m. Check the side lengths are
+      $13$\,cm and that marker 0's entry gives the identity.
+
+\item Compute $X_{\text{true}} = A^{-1} B X$ using~\eqref{eq:inverse} for the inverse.
+
+\item Report the shift and the rotation angle. A shift of the size you remember moving
+      the marker is the single best confirmation available.
+
+\item Generate the new corners with~\eqref{eq:back}, convert back to cm, write them into
+      the file keeping the corner order.
+
+\item \textbf{Verify independently}: run with both markers visible and watch
+      \texttt{main\_shapes} while covering one, then the other. If the master pose does
+      not jump, the relative geometry is right. This is the only check that is not
+      circular.
+\end{enumerate}
+
+\paragraph{If there are more than two markers.} Repeat steps 2--9 once per extra marker,
+always against the same reference $A$, and always leaving the reference marker's entry
+alone. With $n$ markers you need $n$ recordings, one per marker, all from the same
+camera pose.
+
+\end{document}
